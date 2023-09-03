@@ -4,8 +4,12 @@ const User = require("../model/User.js");
 const fs = require("fs");
 const path = require("path");
 const mongoosePaginate = require('mongoose-pagination');
-const { validarRegistro, hashear, hashPassword, verifyPassword } = require("../helpers/fx.js");
+const { validarRegistro, hashear, hashPassword, verifyPassword, getCo2e } = require("../helpers/fx.js");
 const { createToken, secret } = require("../helpers/jwt.js");
+const Joi = require("joi")
+
+//importaciones para Reciclaje
+
 
 
 const test = (req, res) => {
@@ -15,7 +19,6 @@ const test = (req, res) => {
         usuario: req.user,
     });
 }
-
 
 //registro corregido por mi con un flag
 
@@ -99,8 +102,6 @@ const register = async (req, res) => {
 
 
 }
-
-
 //loguearse
 
 const login = (req, res) => {
@@ -108,7 +109,7 @@ const login = (req, res) => {
     let flag = false;
     const params = req.body;
 
-    if (!params.email || !params.password) {
+    if (!params.email) {
 
         return res.status(400).send({
             status: "error",
@@ -147,6 +148,7 @@ const login = (req, res) => {
                     nick: user.nick,
                     email: user.email,
                     token: token,
+                    rol:user.rol,
                 }
             })
         });
@@ -245,119 +247,476 @@ const list = (req, res) => {
 
 const update = async (req, res) => {
 
-// buscar la informacion y asignarlauna variable
-let params = req.body
+    // buscar la informacion y asignarlauna variable
+    let params = req.body
 
-User.findOne({email:params.email}).exec((error,user)=>{
-    if (error || !user) {
-        return res.status(400).send({
-            status: "error",
-            message: "No existe el usuario"
-        })
-    }
-
-    //comprobar la contraseña
-    const pwd = bcrypt.compareSync(params.password, user.password);
-    if (!pwd) {
-        return res.status(400).send({
-            status: "error",
-            message: "contraseña incorrecta"
-        })
-    }
-    //asignamos a los parametros la contraseña cifrada
-    params.password= user.password;
-
-
-    User.findOneAndUpdate(user._id, params, {new:true},(error,newUser)=>{
-        if(error){
-            return res.status(500).send({
+    User.findOne({ email: params.email }).exec((error, user) => {
+        if (error || !user) {
+            return res.status(400).send({
                 status: "error",
-                message: "usuario no actualizado",
+                message: "No existe el usuario"
+            })
+        }
+
+        //comprobar la contraseña
+        const pwd = bcrypt.compareSync(params.password, user.password);
+        if (!pwd) {
+            return res.status(400).send({
+                status: "error",
+                message: "contraseña incorrecta"
+            })
+        }
+        //asignamos a los parametros la contraseña cifrada
+        params.password = user.password;
+
+
+        User.findOneAndUpdate(user._id, params, { new: true }, (error, newUser) => {
+            if (error) {
+                return res.status(500).send({
+                    status: "error",
+                    message: "usuario no actualizado",
+                    newUser
+                })
+
+            }
+
+            return res.status(200).send({
+                status: "sucesss",
+                message: "usuario actualizado",
                 newUser
             })
-
-        }
-
-        return res.status(200).send({
-            status: "sucesss",
-            message: "usuario actualizado",
-            newUser
-        })
-    });
+        });
 
 
 
-})
-
-}
-
-const upload = (req, res) => {
-
-    if (!req.file && !req.files) {
-        return res.status(400).json({
-            statys: "error",
-            mensaje: "peticion invalida"
-        })
-    }
-
-    
-    let archivo = req.file.originalname;
-    //extension del archivo
-    let archivosplit = archivo.split("\.")
-    let extension = archivosplit[1];
-
-    if (extension != "jpg" && extension != "png" && extension != "gif") {
-        //borrar datos
-        fs.unlink(req.file.path, (error) => {
-            return res.status(400).json({
-                status: "error",
-                mensaje: "imagen invalida"
-            })
-        })
-    } 
-
-    const userId = req.params.id;
-    let tmp = req.user.id;
-    User.findOneAndUpdate({tmp},{imagen : req.file.filename},{ new: true },(error, userUpdated)=>{
-
-        if (error || !userUpdated) {
-            return res.status(500).json({
-                status: "error",
-                mensaje: "error al actualizar"
-            })
-        }
-        return res.status(200).json({
-            status: "success",
-            articuloAnterior: userUpdated,
-            fichero: req.file
-        })
     })
 
 }
 
-const avatar = (req,res)=>{
+const upload = async (req, res) => {
+    try {
+        if (!req.file && !req.files) {
+            return res.status(400).json({
+                status: "error",
+                message: "Petición inválida"
+            });
+        }
+
+        let archivo = req.file.originalname;
+        let archivosplit = archivo.split(".");
+        let extension = archivosplit[1];
+
+        const allowedExtensions = ["jpg", "png", "gif"];
+
+        if (!allowedExtensions.includes(extension)) {
+            // Borrar datos
+            fs.unlink(req.file.path, (error) => {
+                return res.status(400).json({
+                    status: "error",
+                    message: "Imagen inválida"
+                });
+            });
+        }
+
+        const userId = req.params.id;
+        const updatedUser = await User.findOneAndUpdate({ _id: userId }, { imagen: req.file.filename }, { new: true });
+
+        if (!updatedUser) {
+            return res.status(500).json({
+                status: "error",
+                message: "Error al actualizar"
+            });
+        }
+
+        return res.status(200).json({
+            status: "success",
+            userUpdated: updatedUser,
+            file: req.file
+        });
+    } catch (error) {
+        return res.status(500).json({
+            status: "error",
+            message: "Error al procesar la solicitud",
+            error: error.message
+        });
+    }
+};
+
+
+const avatar = (req, res) => {
 
     let fichero = req.params.file;
-    
-    let ruta_fisica = "./upload/avatars/"+fichero;
+
+    let ruta_fisica = "./upload/avatars/" + fichero;
     console.log(ruta_fisica);
-    fs.access(ruta_fisica,(error,exist)=>{
-        if(exist){
+    fs.access(ruta_fisica, (error, exist) => {
+        if (exist) {
             return res.status(404).json({
-                status:"error",
+                status: "error",
                 mensaje: "la imagen no existe",
                 ruta_fisica,
             });
         }
-        if( !exist){
+        if (!exist) {
             return res.sendFile(path.resolve(ruta_fisica));
 
         }
-        
-        
+
+
     })
 
 
 }
 
-module.exports = { test, register, login, profile, all, list, update, upload, avatar }
+//falta testear fx delete
+const deleteUser = async (req, res) => {
+
+    const params = req.body;
+    const email = params.email;
+    const password = params.password;
+
+
+
+    try {
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        const pwd = bcrypt.compareSync(password, user.password);
+        if (!pwd) {
+            return res.status(401).send({
+                status: "error",
+                message: "contraseña incorrecta"
+            })
+        }
+
+        await user.remove();
+        res.status(200).json({ message: 'Usuario eliminado con éxito' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error });
+    }
+
+}
+
+
+//DESDE ACA LAS FUNCIONES PARA CREAR RECICLAJES
+
+
+const crearReciclaje = async (req, res) => {  //mejorado con gpt
+    try {
+        // Recibir datos
+        const { email, material, cantidad } = req.body;
+
+        // Validar datos
+        if (!email) {
+            return res.status(400).send({
+                status: "error",
+                message: "Es necesario el correo"
+            });
+        }
+
+        // Buscar usuario por correo electrónico
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).send({
+                status: "error",
+                message: "Usuario no encontrado"
+            });
+        }
+
+        // Calcular CO2 equivalente
+        const co2 = getCo2e(material, parseInt(cantidad));
+
+        // Crear objeto Reciclaje
+        const reciclajeToSave = new Reciclaje({ ...req.body, co2, idUser: user._id });
+
+        // Guardar reciclaje en la base de datos
+        const reciclajeStorage = await reciclajeToSave.save();
+
+        // Enviar respuesta
+        return res.status(200).send({
+            status: "success",
+            message: "New Reciclaje Action",
+            reciclajeStorage
+        });
+    } catch (error) {
+        // Manejar errores
+        return res.status(500).send({
+            status: "error",
+            message: "Error al guardar",
+            error: error.message
+        });
+    }
+};
+
+
+
+const verificacion = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const reciclaje = await Reciclaje.findById(id);
+        if (!reciclaje) {
+            return res.status(404).json({ message: 'Reciclaje no encontrado' });
+        }
+
+        if (reciclaje.estado === "verificado") {
+            return res.status(400).json({ message: 'El reciclaje ya ha sido verificado' });
+        }
+
+        reciclaje.estado = "verificado";
+        await reciclaje.save();
+
+        res.status(200).json({ message: 'Reciclaje verificado con éxito', reciclaje });
+    } catch (error) {
+        res.status(500).json({ message: 'Error al verificar el reciclaje', error });
+    }
+};
+
+
+const historial = async (req, res) => {
+    try {
+        const usuario = req.params.id;
+
+        // Buscar reciclajes por ID de usuario
+        const reciclajes = await Reciclaje.find({ idUser: usuario });
+
+        // Verificar si se encontraron reciclajes
+        if (reciclajes.length === 0) {
+            return res.status(404).send({
+                status: "error",
+                message: "No se encontraron registros"
+            });
+        }
+
+        // Enviar respuesta
+        return res.status(200).send({
+            status: "success",
+            reciclajes
+        });
+    } catch (error) {
+        // Manejar errores
+        return res.status(500).send({
+            status: "error",
+            message: "Error al buscar registros",
+            error: error.message
+        });
+    }
+};
+
+
+
+
+const historialMaterial = async (req, res) => {
+    const usuario = req.params.id;
+    const material = req.params.material;
+
+    try {
+        const resultado = await Reciclaje.aggregate([
+            { $match: { idUser: usuario, material: material } },
+            { $group: { _id: null, totalCo2: { $sum: "$co2" }, reciclajes: { $push: "$$ROOT" } } }
+        ]);
+
+        if (resultado.length === 0) {
+            return res.status(404).json({ message: "No se encontraron registros" });
+        }
+
+        const { reciclajes, totalCo2 } = resultado[0];
+
+        return res.status(200).json({ reciclajes, totalCo2 });
+
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+
+
+const historialEstado = async (req, res) => {
+
+    const usuario = req.params.id;
+    const material = req.params.material;
+    const estado = req.params.estado;
+
+    try {
+        const resultado = await Reciclaje.aggregate([
+            {
+                $match: {
+                    idUser: usuario,
+                    // material: material, 
+                    estado: estado
+                }
+            },
+            { $group: { _id: null, totalCo2: { $sum: "$co2" }, reciclajes: { $push: "$$ROOT" } } }
+        ]);
+
+        if (resultado.length === 0) {
+            return res.status(404).json({ message: "No se encontraron registros" });
+        }
+
+        const { reciclajes, totalCo2 } = resultado[0];
+
+        return res.status(200).json({ reciclajes, totalCo2 });
+
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+
+}
+
+const listaAbiertos = (req, res) => {
+
+    const usuario = req.params.id;
+
+
+    Reciclaje.find({ idUser: usuario, estado: "abierto" }, (error, reciclajes) => {
+        if (error || !reciclajes) {
+            return res.status(404).send({
+                status: error,
+                message: "no se encontro registro"
+            })
+        }
+
+        return res.status(200).send({
+            reciclajes
+        })
+
+    })
+
+}
+
+const listaCerrados = (req, res) => {
+
+    const usuario = req.params.id;
+
+
+    Reciclaje.find({ idUser: usuario, estado: "verificado" }, (error, reciclajes) => {
+        if (error || !reciclajes) {
+            return res.status(404).send({
+                status: error,
+                message: "no se encontro registro"
+            })
+        }
+
+        return res.status(200).send({
+            reciclajes
+        })
+
+    })
+
+}
+
+const historialMaterialEstado = async (req, res) => {
+
+    const usuario = req.params.id;
+    const estado = req.params.estado;
+    const material = req.params.material;
+
+    try {
+        const resultado = await Reciclaje.aggregate([
+            {
+                $match: {
+                    idUser: usuario,
+                    // material: material, 
+                    estado: estado
+                }
+            },
+            { $group: { _id: null, totalCo2: { $sum: "$co2" }, reciclajes: { $push: "$$ROOT" } } }
+        ]);
+
+        if (resultado.length === 0) {
+            return res.status(404).json({ message: "No se encontraron registros" });
+        }
+
+        const { reciclajes, totalCo2 } = resultado[0];
+
+        return res.status(200).json({ reciclajes, totalCo2 });
+
+    } catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+
+}
+
+const co2User = (req, res) => {
+    const material = req.params.material;
+    cantidad = parseInt(req.params.cantidad)
+
+    const co2 = getCo2e(material, cantidad);
+
+
+    return res.status(200).send({
+        status: "seccess",
+        message: "co2",
+        material: material,
+        cantidad: cantidad,
+        co2
+
+
+    })
+
+
+
+}
+
+const getReciclaje = async (req, res) => {
+
+    try {
+        const reciclaje = await Reciclaje.findById(req.params.id).exec();
+        if (!reciclaje) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Reciclaje no encontrado'
+            });
+        }
+        return res.status(200).json({
+            status: 'success',
+            data: {
+                reciclaje
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            status: 'error',
+            message: 'Error interno del servidor'
+        });
+    }
+};
+
+
+
+//falta testeo funcion
+const deleteReciclaje = async (req, res) => {
+
+
+    const reciclajeId = req.params.id;
+    try {
+        const reciclaje = await Reciclaje.findById(reciclajeId);
+
+        if (!reciclaje) {
+            return res.status(404).json({ message: 'Reciclaje no encontrado' });
+        }
+
+        await reciclaje.remove();
+        res.status(200).json({ message: 'Reciclaje eliminado con éxito' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error });
+    }
+
+}
+
+
+module.exports = {
+    test, register, login, profile, all, list, update, upload, avatar, //controles de usuario
+
+    //controles de reciclaje
+    crearReciclaje, verificacion, historial, historialMaterial, historialEstado, historialMaterialEstado,
+
+    //controles CO2
+    co2User, listaAbiertos, listaCerrados, deleteUser, deleteReciclaje, getReciclaje
+
+
+}

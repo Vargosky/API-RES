@@ -3,6 +3,26 @@ const bcrypt = require("bcrypt");
 const crypto = require('crypto');
 
 
+
+const equivalenciasCO2  = 
+  {
+      "papel": 0.5,
+      "carton": 0.5,
+      "vidrio": 0.3,
+      "P-PET": 1.2,
+      "P-HDPE": 1.5,
+      "P-LDPE": 2,
+      "P-PVC": 3,
+      "P-PP": 2,
+      "neumatico": 14,
+      "P-PS": 2,
+      "lubricante": 3,
+      "pila": 60,
+      "aerosol": 1.5,
+
+ }
+
+
 const validarRegistro=(name,surname,nick,email)=>{
 
     return(name && surname && nick && email)
@@ -52,6 +72,20 @@ return hashedPassword;
 }
 
 
+function getCo2e(material, cantidad) {
+  // Verifica si el material existe en las equivalencias de CO2
+  if (material in equivalenciasCO2) {
+    // Calcula la cantidad de CO2 equivalente
+    const cantidadCO2 = cantidad * equivalenciasCO2[material];
+    return cantidadCO2
+    // console.log(`El material ${material} produce ${cantidadCO2} kg de CO2 equivalente por ${cantidad} unidades`);
+  } else {
+    return null;
+  }
+}
+
+
+
 
 
 
@@ -61,5 +95,6 @@ module.exports = {
     // existe,
     hashear,
     hashPassword,
-    verifyPassword
+    verifyPassword,
+    getCo2e
 }
